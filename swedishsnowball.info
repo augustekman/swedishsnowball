@@ -1,0 +1,5 @@
+name = Swedish Snowball Stemmer
+description = Improve search on Swedish sites by reducing words to their stem.
+package = Search
+dependencies[] = search
+core = 7.x

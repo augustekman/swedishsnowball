@@ -1,0 +1,138 @@
+<?php
+
+
+/**
+ * @file
+ * Improve search on Swedish sites by reducing words to their stem. Based on
+ * the Swedish stemming algorithm outlined on:
+ *
+ *    http://snowball.tartarus.org/algorithms/Swedish/stemmer.html
+ *
+ *
+ * Module is combined from Drupal 7 Danish Stemmer and Drupal 6 Swedish Stemmer.
+ */
+
+/* --- HOOKS ---------------------------------------------------------------- */
+
+/**
+ * Implements hook_search_preprocess().
+ */
+function swedishsnowball_search_preprocess($text) {
+  // split words from noise and remove apostrophes
+  $words = preg_split('/([^a-zA-ZáéåäöæøüÁÉÅÄÖÆØÜ\']+)/u', $text, -1, PREG_SPLIT_DELIM_CAPTURE);
+
+  $odd = TRUE;
+  $minimum_word_size = variable_get('minimum_word_size', 3);
+
+  // process each word
+  foreach ($words as $k => $word) {
+    if ($odd) {
+      // only handle words longer than the minimum word size, ignore the rest
+      if (drupal_strlen($word) < $minimum_word_size) {
+        $words[$k] = '';
+      }
+      else {
+        $words[$k] = swedishsnowball_stem($word);
+      }
+    }
+    $odd = !$odd;
+  }
+
+  return implode('', $words);
+}
+
+/* --- STEMMING ------------------------------------------------------------- */
+
+/**
+ * Stem a Swedish word.
+ */
+function swedishsnowball_stem($word) {
+  $word = drupal_strtolower($word);
+
+  /**
+   * R1 is the region after the first non-vowel following a vowel, or is the
+   * null region at the end of the word if there is no such non-vowel.
+   */
+  $r1 = '';
+  if (preg_match('/[aeiouyæøåäöáéü][^aeiouyæøåäöáéü]/u', $word, $matches, PREG_OFFSET_CAPTURE)) {
+    $r1 = $matches[0][1] + 2;
+  }
+
+  // steps 1-4: suffix removal
+  $word = swedishsnowball_step1($word, $r1);
+  $word = swedishsnowball_step2($word, $r1);
+  $word = swedishsnowball_step3($word, $r1);
+  //$word = swedishsnowball_step4($word, $r1);
+
+  return $word;
+}
+
+
+/**
+ * Step 1: Search for the longest among the following suffixes in R1, and
+ * perform the action indicated.
+ *
+ * (a) a arna erna heterna orna ad e ade ande arne are aste en anden aren heten ern ar er
+ *     heter or as arnas ernas ornas es ades andes ens arens hetens erns at andet het ast
+ *
+ *     Action: Delete
+ *
+ * (b) s
+ *
+ *     Action: delete if preceded by a valid s-ending (of course the letter of
+ *     the valid s-ending is not necessarily in R1)
+ */
+function swedishsnowball_step1($word, $r1) {
+  if ($r1) {
+    foreach (array('a', 'arna', 'erna', 'heterna', 'orna', 'ad', 'e', 'ade', 'ande', 'arne', 'are', 'aste', 'en', 'anden', 'aren', 'heten', 'ern', 'ar', 'er', 'heter', 'or', 'as', 'arnas', 'ernas', 'ornas', 'es', 'ades', 'andes', 'ens', 'arens', 'hetens', 'erns', 'at', 'andet', 'het', 'ast') as $ending) {
+      if (preg_match('/' . $ending . '$/', $word)) {
+        $word = drupal_substr($word, 0, drupal_strlen($ending) * -1);
+        break;
+      }
+    }
+
+    $word = preg_replace('/([bcdfghjklmnoprtvy])s$/', '\\1', $word);
+  }
+
+  return $word;
+}
+
+
+/**
+ * Step 2: Search for one of the following suffixes in R1, and if found delete
+ * the last letter.
+ *
+ *    gd dt gt kt
+ *
+ * (For example, friskt -> frisk)
+ */
+function swedishsnowball_step2($word, $r1) {
+  if ($r1) {
+    $word = preg_match('/(dd|gd|nn|dt|gt|kt|tt)$/', $word) ? drupal_substr($word, 0, -1) : $word;
+  }
+
+  return $word;
+}
+
+/**
+ * Step 3: Search for the longest among the following suffixes in R1, and perform
+ * the action indicated.
+ *
+ * lig ig els -> delete
+ *
+ * löst -> lös
+ *
+ * fullt -> full
+ *
+ */
+
+function swedishsnowball_step3($word, $r1) {
+  if ($r1) {
+    $word = preg_replace('/(lig|ig|els)$/', '', $word);
+    $word = preg_replace('/löst$/', 'lös', $word);
+    $word = preg_replace('/fullt$/', 'full', $word);
+  }
+
+  return $word;
+}
+
